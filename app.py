@@ -5,7 +5,6 @@ from PIL import Image
 import tensorflow as tf
 from tensorflow.keras.applications.mobilenet_v2 import MobileNetV2, preprocess_input
 from tensorflow.keras.preprocessing import image
-import io
 
 # Page configuration
 st.set_page_config(
@@ -52,7 +51,7 @@ st.markdown("""
 def load_models():
     try:
         # Load SVM model
-        with open('MobileNetV2_SVM_model.pkl', 'rb') as f:
+        with open('classifier.pkl', 'rb') as f:
             svm_model = pickle.load(f)
         
         # Load MobileNetV2 for feature extraction
@@ -70,58 +69,48 @@ def load_models():
 
 # Feature extraction function
 def extract_features(img, feature_extractor):
-    # Resize image
     img = img.resize((224, 224))
-    
-    # Convert to array
     img_array = image.img_to_array(img)
     img_array = np.expand_dims(img_array, axis=0)
-    
-    # Preprocess
     img_array = preprocess_input(img_array)
-    
-    # Extract features
     features = feature_extractor.predict(img_array, verbose=0)
-    
     return features
 
 # Prediction function
 def predict_disease(img, svm_model, feature_extractor):
-    # Extract features
     features = extract_features(img, feature_extractor)
-    
-    # Predict
     prediction = svm_model.predict(features)
-    probabilities = svm_model.predict_proba(features)
     
-    # Class names
+    # Handle probability prediction
+    try:
+        probabilities = svm_model.predict_proba(features)[0]
+    except:
+        decision_scores = svm_model.decision_function(features)[0]
+        exp_scores = np.exp(decision_scores - np.max(decision_scores))
+        probabilities = exp_scores / exp_scores.sum()
+    
     class_names = ['Coccidiosis', 'Healthy', 'Salmonella']
-    
     predicted_class = class_names[prediction[0]]
-    confidence = probabilities[0][prediction[0]] * 100
+    confidence = probabilities[prediction[0]] * 100
     
-    return predicted_class, confidence, probabilities[0]
+    return predicted_class, confidence, probabilities
 
 # Main app
 def main():
-    # Header
     st.title("🐔 Poultry Disease Classification")
     st.markdown("### AI-Powered Disease Detection System")
     st.markdown("Upload a poultry image to detect **Coccidiosis**, **Salmonella**, or check if it's **Healthy**")
-    
     st.markdown("---")
     
-    # Load models
     with st.spinner("Loading AI models..."):
         svm_model, feature_extractor = load_models()
     
     if svm_model is None or feature_extractor is None:
-        st.error("❌ Failed to load models. Please check if 'MobileNetV2_SVM_model.pkl' exists.")
+        st.error("❌ Failed to load models. Please check if 'classifier.pkl' exists.")
         return
     
     st.success("✅ Models loaded successfully!")
     
-    # File uploader
     uploaded_file = st.file_uploader(
         "Choose a poultry image...",
         type=['jpg', 'jpeg', 'png'],
@@ -129,27 +118,22 @@ def main():
     )
     
     if uploaded_file is not None:
-        # Display image
         img = Image.open(uploaded_file).convert('RGB')
         
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             st.image(img, caption="Uploaded Image", use_column_width=True)
         
-        # Predict button
         if st.button("🔍 Analyze Image"):
             with st.spinner("Analyzing..."):
                 try:
-                    # Make prediction
                     predicted_class, confidence, probabilities = predict_disease(
                         img, svm_model, feature_extractor
                     )
                     
-                    # Display results
                     st.markdown("---")
                     st.markdown("## 📊 Analysis Results")
                     
-                    # Result box
                     if predicted_class == "Healthy":
                         result_class = "healthy"
                         emoji = "✅"
@@ -164,16 +148,14 @@ def main():
                         </div>
                     """, unsafe_allow_html=True)
                     
-                    # Probability breakdown
                     st.markdown("### Detailed Probabilities:")
                     class_names = ['Coccidiosis', 'Healthy', 'Salmonella']
                     
                     for i, class_name in enumerate(class_names):
                         prob = probabilities[i] * 100
-                        st.progress(probabilities[i])
+                        st.progress(float(probabilities[i]))
                         st.markdown(f"**{class_name}**: {prob:.2f}%")
                     
-                    # Recommendations
                     st.markdown("---")
                     st.markdown("### 💡 Recommendations:")
                     
@@ -205,7 +187,6 @@ def main():
                 except Exception as e:
                     st.error(f"❌ Error during prediction: {str(e)}")
     
-    # Footer
     st.markdown("---")
     st.markdown("""
         <div style='text-align: center; color: gray;'>
